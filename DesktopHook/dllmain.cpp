@@ -6,9 +6,13 @@
 #include <cctype>
 
 HINSTANCE g_hinstDll        = NULL;
-WNDPROC   g_oldProc         = NULL;
-HWND      g_hwndDefView     = NULL;
 DWORD     g_desktopThreadId = 0;
+
+WNDPROC   g_oldDefViewProc  = NULL;
+HWND      g_hwndDefView     = NULL;
+
+WNDPROC   g_oldLVProc       = NULL;
+HWND      g_hwndLV          = NULL;
 
 // g_hook需要DesktopInjecter和桌面进程共享
 #pragma data_seg("Shared")

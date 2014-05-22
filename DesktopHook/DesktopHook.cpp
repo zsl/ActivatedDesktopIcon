@@ -5,6 +5,7 @@
 
 LRESULT WINAPI GetMsgProc(int code, WPARAM wParam, LPARAM lParam);
 LRESULT APIENTRY DesktopDefViewSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+LRESULT APIENTRY DesktopLVSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
 
 BOOL SetDesktopHook(DWORD threadId)
 {
@@ -13,7 +14,7 @@ BOOL SetDesktopHook(DWORD threadId)
 
     if (0 != threadId)
     {
-        assert(g_hook == NULL);
+        assert(g_hook);
 
         g_desktopThreadId = threadId;
         g_hostThreadId = GetCurrentThreadId();
@@ -69,24 +70,24 @@ LRESULT WINAPI GetMsgProc(int code, WPARAM wParam, LPARAM lParam)
         // 在这里初始化我们自己的东西
         // 查找桌面窗口并对其子类化
         g_hwndDefView = GetDesktopDefViewHwnd();
-
+       
         assert(g_hwndDefView);
 
-        if (g_hwndDefView != NULL)
+        if (g_hwndDefView)
         {
-            g_oldProc = reinterpret_cast<WNDPROC>(::SetWindowLongPtr(g_hwndDefView, GWL_WNDPROC, (long)(DesktopDefViewSubclassProc)));
+            g_oldDefViewProc = reinterpret_cast<WNDPROC>(::SetWindowLongPtr(g_hwndDefView, GWL_WNDPROC, (long)(DesktopDefViewSubclassProc)));
 
-            assert(g_oldProc);
-            DbgPrint(g_oldProc ? _T("DeskHook: SubClass Successfully") : _T("DeskHook: SubClass Failed"));
+            assert(g_oldDefViewProc);
+            DbgPrint(g_oldDefViewProc ? _T("DeskHook: SubClass DefView Successfully") : _T("DeskHook: SubClass DefView Failed"));
 
         }
     }
     else if (g_shouldUnLoad)
     {
         g_shouldUnLoad = false;
-        if (g_oldProc)
+        if (g_oldDefViewProc)
         {
-            ::SetWindowLongPtr(g_hwndDefView, GWL_WNDPROC, (long)(g_oldProc));
+            ::SetWindowLongPtr(g_hwndDefView, GWL_WNDPROC, (long)(g_oldDefViewProc));
             ::PostThreadMessage(g_hostThreadId, WM_NULL, 0, 0);
         }
     }
