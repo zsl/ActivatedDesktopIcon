@@ -81,15 +81,32 @@ LRESULT WINAPI GetMsgProc(int code, WPARAM wParam, LPARAM lParam)
             DbgPrint(g_oldDefViewProc ? _T("DeskHook: SubClass DefView Successfully") : _T("DeskHook: SubClass DefView Failed"));
 
         }
+
+        g_hwndLV = GetTopWindow(g_hwndDefView);
+        assert(g_hwndLV);
+
+        if (g_hwndLV)
+        {
+            g_oldLVProc = reinterpret_cast<WNDPROC>(::SetWindowLongPtr(g_hwndLV, GWL_WNDPROC, (long)DesktopLVSubclassProc));
+            assert(g_oldLVProc);
+            DbgPrint(g_oldDefViewProc ? _T("DeskHook: SubClass LV Successfully") : _T("DeskHook: SubClass LV Failed"));
+        }
     }
     else if (g_shouldUnLoad)
     {
         g_shouldUnLoad = false;
+
         if (g_oldDefViewProc)
         {
             ::SetWindowLongPtr(g_hwndDefView, GWL_WNDPROC, (long)(g_oldDefViewProc));
-            ::PostThreadMessage(g_hostThreadId, WM_NULL, 0, 0);
         }
+
+        if (g_oldLVProc)
+        {
+            ::SetWindowLongPtr(g_hwndLV, GWL_WNDPROC, (long)g_oldLVProc);
+        }
+
+        ::PostThreadMessage(g_hostThreadId, WM_NULL, 0, 0);
     }
 
     return CallNextHookEx(g_hook, code, wParam, lParam);
