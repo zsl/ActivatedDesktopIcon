@@ -86,7 +86,7 @@ void InitImage()
     std::array<WCHAR, MAX_PATH> path;
     ::GetModuleFileNameW(g_hinstDll, path.data(), path.size());
     ::PathRemoveFileSpecW(path.data());
-    ::PathAppend(path.data(), L"zsl.gif");
+    ::PathAppendW(path.data(), L"zsl.gif");
 
     DbgPrint(_T("InitImage, %s"), path.data());
 
