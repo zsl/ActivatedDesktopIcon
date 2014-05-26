@@ -62,6 +62,7 @@ LRESULT WINAPI GetMsgProc(int code, WPARAM wParam, LPARAM lParam)
     // 这个函数会在桌面进程中执行
 
     static bool bFirstTime = true;
+
     if (bFirstTime)
     {
         DbgPrint(_T("DeskHook: Into HookProc"));

@@ -17,7 +17,9 @@ public:
     ImageInfo() : m_frameCount(0), m_curFrame(0) {}
 
     UINT GetFrameCount() { assert(m_img); return m_frameCount; }
+
     UINT GetCurrentFrame() { assert(m_img); return m_curFrame; }
+
     void SetCurrentFrame(UINT index)
     { 
         assert(m_img);  
@@ -69,6 +71,7 @@ public:
     {
         g.DrawImage(m_img.get(), paintRect);
     }
+
 private:
     std::wstring m_strImgFile;
     std::shared_ptr<Gdiplus::Image> m_img;
@@ -240,6 +243,7 @@ LRESULT OnLVCustomDraw(NMLVCUSTOMDRAW* nmInfo, bool &bHandled)
             }
         }
     }
+
     return ret;
 }
 
@@ -261,18 +265,31 @@ LRESULT APIENTRY DesktopLVSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
             POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             if (isPointInSpeciedItem(g_hwndLV, pt))
             {
-                ::SetTimer(g_hwndDefView, TIMER_ID_REPAINTITEM, 100, NULL);
+                ::SetTimer(g_hwndDefView, TIMER_ID_REPAINTITEM, 100, nullptr);
             }
 
             break;
         }
     }
+
     return CallWindowProc(g_oldLVProc, hwnd, uMsg, wParam, lParam);
 }
 
 LRESULT OnRepaintItem(HWND hwnd, bool &bHandled)
 {
     bHandled = true;
+
+    if (!g_img)
+    {
+        InitImage();
+    }
+
+    // 如果只有一帧，就没有必要用timer了
+    if (g_img->GetFrameCount() < 2)
+    {
+        ::KillTimer(hwnd, TIMER_ID_REPAINTITEM);
+        return 0;
+    }
 
     POINT cursorPos;
     GetCursorPos(&cursorPos);
@@ -289,19 +306,17 @@ LRESULT OnRepaintItem(HWND hwnd, bool &bHandled)
         g_img->SetCurrentFrame(curFrame);
         ::InvalidateRect(g_hwndLV, &rcBound, FALSE);
 
-        if (!g_img)
-        {
-            InitImage();
-        }
-
         long curDuration = g_img->GetFrameDuration(curFrame);
 
-        SetTimer(hwnd, TIMER_ID_REPAINTITEM, curDuration, NULL);
+        SetTimer(hwnd, TIMER_ID_REPAINTITEM, curDuration, nullptr);
     }
     else
     {
+        // fix it : KillTimer后，gif没有显示第一帧图片
         DbgPrint(_T("Kill Timer RepaintItem"));
+
         ::KillTimer(hwnd, TIMER_ID_REPAINTITEM);
+
         g_img->SetCurrentFrame(0);
         ::InvalidateRect(g_hwndLV, &rcBound, FALSE);
     }
@@ -311,8 +326,7 @@ LRESULT OnRepaintItem(HWND hwnd, bool &bHandled)
 
 bool isPointInSpeciedItem(HWND listViewHwnd, POINT pt, RECT *rcBound/* = nullptr*/)
 {
-    LVHITTESTINFO hitInfo;
-    ::memset(&hitInfo, 0, sizeof hitInfo);
+    LVHITTESTINFO hitInfo = {0};
 
     hitInfo.flags = LVHT_ONITEM;
     hitInfo.pt.x = pt.x;
