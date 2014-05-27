@@ -10,6 +10,7 @@
 
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "shlwapi.lib")
+#pragma comment(lib, "comctl32.lib")
 
 class ImageInfo
 {
@@ -40,7 +41,7 @@ public:
     void SetImage(const std::wstring &strImgFile)
     {
         m_strImgFile = strImgFile;
-        m_img = std::make_shared<Gdiplus::Image>(m_strImgFile.c_str());
+        m_img = std::make_shared<Gdiplus::Bitmap>(m_strImgFile.c_str());
 
         UINT frameDimensionCount = m_img->GetFrameDimensionsCount();
         if (frameDimensionCount > 0)
@@ -67,6 +68,16 @@ public:
         }
     }
 
+    HBITMAP GetHBITMAP()
+    {
+        assert(m_img);
+
+        HBITMAP result = 0;
+        m_img->GetHBITMAP(0, &result);
+
+        return result;
+    }
+
     void Draw(Gdiplus::Graphics &g, Gdiplus::Rect &paintRect)
     {
         g.DrawImage(m_img.get(), paintRect);
@@ -74,29 +85,73 @@ public:
 
 private:
     std::wstring m_strImgFile;
-    std::shared_ptr<Gdiplus::Image> m_img;
+    std::shared_ptr<Gdiplus::Bitmap> m_img;
     std::shared_ptr<Gdiplus::PropertyItem> m_propertyItem;
     UINT m_frameCount;
     UINT m_curFrame;
 };
 
-std::shared_ptr<ImageInfo> g_img;
-
-void InitImage()
+class DragInfo
 {
-    g_img = std::make_shared<ImageInfo>();
-    // 获取图像的路径
-    std::array<WCHAR, MAX_PATH> path;
-    ::GetModuleFileNameW(g_hinstDll, path.data(), path.size());
-    ::PathRemoveFileSpecW(path.data());
-    ::PathAppendW(path.data(), L"zsl.gif");
+public:
+    DragInfo(HIMAGELIST imglist)
+        : m_imageList(imglist)
+        , m_isDrag(false) 
+        , m_hwnd(NULL)
+    {}
 
-    DbgPrint(_T("InitImage, %s"), path.data());
+    ~DragInfo(){ };
 
-    assert(::PathFileExistsW(path.data()));
+public:
+    void DragEnter(HWND hwnd, POINT pt)
+    {
+        m_hwnd = hwnd;
+        ImageList_DragEnter(hwnd, pt.x, pt.y);
+    }
 
-    g_img->SetImage(path.data());
+    void DragMove(POINT pt)
+    {
+        ImageList_DragMove(pt.x, pt.y);
+    }
+
+    void DragLeave()
+    {
+        ImageList_DragLeave(m_hwnd);
+        m_hwnd = NULL;
+        m_isDrag = false;
+    }
+
+    HIMAGELIST GetHandle() { return m_imageList; }
+
+private:
+    HIMAGELIST m_imageList;
+    HWND m_hwnd;
+    bool m_isDrag;
+};
+
+std::shared_ptr<ImageInfo> GetIconImage()
+{
+    static std::shared_ptr<ImageInfo> s_img;
+    if (!s_img)
+    {
+        s_img = std::make_shared<ImageInfo>();
+        // 获取图像的路径
+        std::array<WCHAR, MAX_PATH> path;
+        ::GetModuleFileNameW(g_hinstDll, path.data(), path.size());
+        ::PathRemoveFileSpecW(path.data());
+        ::PathAppendW(path.data(), L"zsl.gif");
+
+        DbgPrint(_T("InitImage, %s"), path.data());
+
+        assert(::PathFileExistsW(path.data()));
+
+        s_img->SetImage(path.data());
+    }
+
+    return s_img;
 }
+
+std::shared_ptr<DragInfo> g_dragInfo;
 
 #define TIMER_ID_REPAINTITEM 10000
 
@@ -104,6 +159,10 @@ void InitImage()
 LRESULT OnLVClick(NMITEMACTIVATE* nmInfo, bool &bHandled);
 LRESULT OnLVCustomDraw(NMLVCUSTOMDRAW* nmInfo, bool &bHandled);
 LRESULT OnRepaintItem(HWND hwnd, bool &bHandled);
+
+LRESULT OnDragBegin(HWND hwnd, NMLISTVIEW* nmInfo, bool &bHandled);
+LRESULT OnDragMove(HWND hwnd, NMLISTVIEW* nmInfo, bool &bHandled);
+LRESULT OnDragEnd(HWND hwnd, NMLISTVIEW* nmInfo, bool &bHandled);
 
 bool isPointInSpeciedItem(HWND listViewHwnd, POINT pt, RECT *rcBound = nullptr);
 
@@ -137,9 +196,41 @@ LRESULT APIENTRY DesktopDefViewSubclassProc(HWND hwnd, UINT uMsg, WPARAM wParam,
                     ret = OnLVCustomDraw(nmInfo, bHandled);
                     break;
                 }
+                case LVN_BEGINDRAG:
+                {
+                    NMLISTVIEW* nmInfo = reinterpret_cast<NMLISTVIEW*>(lParam);
+                    ret = OnDragBegin(hwnd, nmInfo, bHandled);
+                    break;
+                }
                 default:
                     break;
             }
+            break;
+        }
+        case WM_MOUSEMOVE:
+        {
+            if (g_dragInfo)
+            {
+                POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+                g_dragInfo->DragMove(pt);
+
+                bHandled = true;
+            }
+
+            break;
+        }
+        case WM_LBUTTONUP:
+        {
+            if (g_dragInfo)
+            {
+                bHandled = true;
+                ReleaseCapture();
+
+                g_dragInfo->DragLeave();
+                ImageList_EndDrag();
+                g_dragInfo.reset();
+            }
+
             break;
         }
         case WM_TIMER:
@@ -227,12 +318,7 @@ LRESULT OnLVCustomDraw(NMLVCUSTOMDRAW* nmInfo, bool &bHandled)
                                      iconRect.right - iconRect.left, iconRect.bottom - iconRect.top
                                 );
 
-                if (!g_img)
-                {
-                    InitImage();
-                }
-
-                g_img->Draw(g, paintRect);
+                GetIconImage()->Draw(g, paintRect);
        
                 ret = CDRF_SKIPDEFAULT;
                 break;
@@ -279,13 +365,10 @@ LRESULT OnRepaintItem(HWND hwnd, bool &bHandled)
 {
     bHandled = true;
 
-    if (!g_img)
-    {
-        InitImage();
-    }
+    std::shared_ptr<ImageInfo> img = GetIconImage();
 
     // 如果只有一帧，就没有必要用timer了
-    if (g_img->GetFrameCount() < 2)
+    if (img->GetFrameCount() < 2)
     {
         ::KillTimer(hwnd, TIMER_ID_REPAINTITEM);
         return 0;
@@ -298,15 +381,15 @@ LRESULT OnRepaintItem(HWND hwnd, bool &bHandled)
     RECT rcBound = {0};
     if (isPointInSpeciedItem(g_hwndLV, cursorPos, &rcBound))
     {
-        UINT curFrame = g_img->GetCurrentFrame();
+        UINT curFrame = img->GetCurrentFrame();
         curFrame++;
 
-        if (curFrame >= g_img->GetFrameCount()) curFrame = 0;
+        if (curFrame >= img->GetFrameCount()) curFrame = 0;
 
-        g_img->SetCurrentFrame(curFrame);
+        img->SetCurrentFrame(curFrame);
         ::InvalidateRect(g_hwndLV, &rcBound, FALSE);
 
-        long curDuration = g_img->GetFrameDuration(curFrame);
+        long curDuration = img->GetFrameDuration(curFrame);
 
         SetTimer(hwnd, TIMER_ID_REPAINTITEM, curDuration, nullptr);
     }
@@ -317,7 +400,7 @@ LRESULT OnRepaintItem(HWND hwnd, bool &bHandled)
 
         ::KillTimer(hwnd, TIMER_ID_REPAINTITEM);
 
-        g_img->SetCurrentFrame(0);
+        img->SetCurrentFrame(0);
         ::InvalidateRect(g_hwndLV, &rcBound, FALSE);
     }
 
@@ -353,4 +436,40 @@ bool isPointInSpeciedItem(HWND listViewHwnd, POINT pt, RECT *rcBound/* = nullptr
     }
 
     return false;
+}
+
+LRESULT OnDragBegin(HWND hwnd, NMLISTVIEW* nmInfo, bool &bHandled)
+{
+    bHandled = false;
+
+    const int itemIndex = nmInfo->iItem;
+
+    if (itemIndex != -1)
+    {
+        HWND hLV = nmInfo->hdr.hwndFrom;
+
+        TCHAR text[MAX_PATH] = {0};
+        ListView_GetItemText(hLV, itemIndex, nmInfo->iSubItem, text, MAX_PATH);
+
+        DbgPrint(_T("HistTest, GetItemText:%s"), text);
+
+        // Fix It: 拖拽时，拖拽背景没有显示指定的图标
+        if (0 == _tcsicmp(text, _T("zsl.activateicon")))
+        {
+            bHandled = true;
+
+            POINT pt = { -10, -10 };
+            g_dragInfo = std::make_shared<DragInfo>(ListView_CreateDragImage(hLV, itemIndex, &pt));
+
+            HBITMAP bmp = GetIconImage()->GetHBITMAP();
+            ImageList_Replace(g_dragInfo->GetHandle(), 0, bmp, bmp);
+
+            ImageList_BeginDrag(g_dragInfo->GetHandle(), 0, 0, 0);
+            g_dragInfo->DragEnter(hwnd, nmInfo->ptAction);
+
+            ::SetCapture(hwnd);
+        }
+    }
+
+    return 0;
 }
